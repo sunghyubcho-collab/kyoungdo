@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GP 그래프</title>
+<style>
+  :root { --surface:#fcfcfb; --text:#0b0b0b; --text2:#52514e; --grid:#e4e3df; --series:#2a78d6; --card:#ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface:#1a1a19; --text:#f0efec; --text2:#c3c2b7; --grid:#383835; --series:#3987e5; --card:#222221; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 48px; background:var(--surface); color:var(--text);
+         font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 2px; }
+  p { color: var(--text2); font-size: 14px; line-height: 1.6; margin: 0 0 12px; }
+  section { margin-top: 32px; }
+  .chart { position: relative; }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+  svg text { fill: var(--text2); font-size: 12px; font-family: inherit; }
+  svg text.val { fill: var(--text); font-weight: 600; }
+  .grid { stroke: var(--grid); stroke-width: 1; }
+  .bar { fill: var(--series); }
+  .bar.dim { opacity: .45; }
+  .line { fill: none; stroke: var(--series); stroke-width: 2; }
+  .dot { fill: var(--series); stroke: var(--surface); stroke-width: 2; }
+  .opt { stroke: var(--text2); stroke-width: 1; stroke-dasharray: 3 3; }
+  .hit { fill: transparent; cursor: default; }
+  #tip { position: absolute; pointer-events: none; background: var(--card); color: var(--text);
+         border: 1px solid var(--grid); border-radius: 6px; padding: 6px 10px; font-size: 13px;
+         line-height: 1.5; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.12); z-index: 2; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+  th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text2); font-weight: 600; }
+  details summary { cursor: pointer; color: var(--text2); font-size: 14px; }
+  .note { font-size: 13px; margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>벤트그래스 생장잠재력(GP)</h1>
+  <p>용인 기준, 2026년 추정 월평균기온. GP = exp(−0.5 × ((T − 20) / 5.5)²)</p>
+
+  <section>
+    <h2>월별 GP</h2>
+    <p>5월과 9월이 최고, 7~8월은 고온으로 40% 아래로 떨어집니다.</p>
+    <div class="chart" id="c1"></div>
+  </section>
+
+  <section>
+    <h2>기온에 따른 GP 곡선과 각 달의 위치</h2>
+    <p>최적 기온 20℃에서 멀어질수록 GP가 낮아집니다. 점은 각 달입니다.</p>
+    <div class="chart" id="c2"></div>
+  </section>
+
+  <section>
+    <details>
+      <summary>표로 보기</summary>
+      <table id="tbl"><thead><tr><th>월</th><th>추정 기온(℃)</th><th>GP</th><th>GP(%)</th></tr></thead><tbody></tbody></table>
+    </details>
+    <p class="note">기온은 수원 평년값에 2026년 전국 평균기온 편차를 더한 추정값이며, 1·2·11·12월은 평년값입니다.</p>
+  </section>
+  <div id="tip"></div>
+</main>
+<script>
+const T = [-2.1, 0.4, 7.1, 13.9, 19.1, 23.2, 27.5, 28.0, 22.4, 15.9, 7.1, 0.1];
+const gp = t => Math.exp(-0.5 * ((t - 20) / 5.5) ** 2);
+const G = T.map(gp);
+const NS = 'http://www.w3.org/2000/svg';
+const el = (n, a, txt) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
+const tip = document.getElementById('tip');
+const main = document.querySelector('main');
+function showTip(ev, html) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const r = main.getBoundingClientRect();
+  let x = ev.clientX - r.left + 12, y = ev.clientY - r.top - 12 - tip.offsetHeight;
+  if (x + tip.offsetWidth > r.width) x = ev.clientX - r.left - tip.offsetWidth - 12;
+  if (y < 0) y = ev.clientY - r.top + 16;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const hideTip = () => tip.style.display = 'none';
+main.style.position = 'relative';
+const info = i => `<b>${i + 1}월</b><br>기온 ${T[i].toFixed(1)}℃<br>GP ${G[i].toFixed(2)} (${(G[i] * 100).toFixed(0)}%)`;
+
+// 차트 1: 월별 막대
+(function () {
+  const W = 720, H = 340, L = 44, R = 12, Tp = 24, B = 34, pw = W - L - R, ph = H - Tp - B;
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': '월별 GP 막대 그래프' });
+  const y = v => Tp + ph * (1 - v);
+  [0, .25, .5, .75, 1].forEach(v => {
+    svg.append(el('line', { class: 'grid', x1: L, x2: W - R, y1: y(v), y2: y(v) }));
+    svg.append(el('text', { x: L - 8, y: y(v) + 4, 'text-anchor': 'end' }, (v * 100) + '%'));
+  });
+  const step = pw / 12, bw = Math.min(34, step - 10);
+  G.forEach((g, i) => {
+    const cx = L + step * (i + .5), h = Math.max(ph * g, 1), r = Math.min(4, h);
+    const x0 = cx - bw / 2, y0 = y(g), yb = y(0);
+    svg.append(el('path', { class: 'bar', d: `M${x0},${yb} V${y0 + r} Q${x0},${y0} ${x0 + r},${y0} H${x0 + bw - r} Q${x0 + bw},${y0} ${x0 + bw},${y0 + r} V${yb} Z` }));
+    if (g >= 0.05) svg.append(el('text', { class: 'val', x: cx, y: y0 - 6, 'text-anchor': 'middle' }, g.toFixed(2)));
+    svg.append(el('text', { x: cx, y: H - 12, 'text-anchor': 'middle' }, (i + 1) + '월'));
+    const hit = el('rect', { class: 'hit', x: cx - step / 2, y: Tp, width: step, height: ph });
+    hit.addEventListener('mousemove', e => showTip(e, info(i)));
+    hit.addEventListener('mouseleave', hideTip);
+    svg.append(hit);
+  });
+  document.getElementById('c1').append(svg);
+})();
+
+// 차트 2: 기온-GP 곡선 + 월 점
+(function () {
+  const W = 720, H = 360, L = 44, R = 16, Tp = 24, B = 44, pw = W - L - R, ph = H - Tp - B;
+  const tmin = -5, tmax = 35;
+  const x = t => L + pw * (t - tmin) / (tmax - tmin), y = v => Tp + ph * (1 - v);
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': '기온에 따른 GP 곡선' });
+  [0, .25, .5, .75, 1].forEach(v => {
+    svg.append(el('line', { class: 'grid', x1: L, x2: W - R, y1: y(v), y2: y(v) }));
+    svg.append(el('text', { x: L - 8, y: y(v) + 4, 'text-anchor': 'end' }, (v * 100) + '%'));
+  });
+  for (let t = tmin; t <= tmax; t += 5) svg.append(el('text', { x: x(t), y: H - B + 18, 'text-anchor': 'middle' }, t + '℃'));
+  svg.append(el('text', { x: L + pw / 2, y: H - 6, 'text-anchor': 'middle' }, '월평균기온'));
+  svg.append(el('line', { class: 'opt', x1: x(20), x2: x(20), y1: Tp, y2: y(0) }));
+  svg.append(el('text', { x: x(20), y: Tp - 8, 'text-anchor': 'middle' }, '최적 20℃'));
+  let d = '';
+  for (let t = tmin; t <= tmax; t += 0.25) d += (d ? 'L' : 'M') + x(t).toFixed(1) + ',' + y(gp(t)).toFixed(1);
+  svg.append(el('path', { class: 'line', d }));
+  // 라벨 위치: 겹침을 피하도록 달마다 지정 [dx, dy, anchor]
+  const pos = { 1: [-4, -12, 'middle'], 2: [6, -12, 'start', '2·12월'], 3: [-10, -4, 'end', '3·11월'], 4: [-10, 2, 'end'], 5: [-10, 12, 'end'], 6: [10, -4, 'start'],
+                7: [-10, 14, 'end'], 8: [12, 0, 'start'], 9: [10, -6, 'start'], 10: [-10, 2, 'end'], 11: [0, 0, 'start', ''], 12: [0, 0, 'middle', ''] };
+  T.forEach((t, i) => {
+    const cx = x(t), cy = y(G[i]), p = pos[i + 1];
+    svg.append(el('circle', { class: 'dot', cx, cy, r: 5 }));
+    svg.append(el('text', { class: 'val', x: cx + p[0], y: cy + p[1] + 4, 'text-anchor': p[2] }, p[3] != null ? p[3] : (i + 1) + '월'));
+    const hit = el('circle', { class: 'hit', cx, cy, r: 14 });
+    hit.addEventListener('mousemove', e => showTip(e, info(i)));
+    hit.addEventListener('mouseleave', hideTip);
+    svg.append(hit);
+  });
+  document.getElementById('c2').append(svg);
+})();
+
+document.querySelector('#tbl tbody').innerHTML = T.map((t, i) =>
+  `<tr><td>${i + 1}월</td><td>${t.toFixed(1)}</td><td>${G[i].toFixed(3)}</td><td>${(G[i] * 100).toFixed(1)}</td></tr>`).join('');
+</script>
+</body>
+</html>
